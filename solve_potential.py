@@ -37,7 +37,8 @@ class Grid():
         # Include ghost zones in data, but not x or y
         self.cell_edges_x = np.linspace(grid_left[0], grid_right[0], grid_dim[0]+1)
         self.cell_edges_y = np.linspace(grid_left[1], grid_right[1], grid_dim[1]+1)
-        self.data = np.zeros((self.cell_edges_x.size+1, self.cell_edges_y.size+1))
+        self.data = np.zeros((self.cell_edges_x.size+1, self.cell_edges_y.size+1),
+                             dtype='double')
 
     def _create_boundary_arrays(self): 
         # Copy the edges of the active zone  
@@ -47,50 +48,25 @@ class Grid():
         self.d_edge  = self.data[1,:].copy()
 
         # Create empty arrays to hold edges from other active zones
-        self.l_ghost = np.empty(self.data.shape[1]) 
-        self.r_ghost = np.empty(self.data.shape[1])
-        self.u_ghost = np.empty(self.data.shape[0])
-        self.d_ghost = np.empty(self.data.shape[0])
-
+        self.l_ghost = np.zeros(self.data.shape[1], dtype='double') 
+        self.r_ghost = np.zeros(self.data.shape[1], dtype='double')
+        self.u_ghost = np.zeros(self.data.shape[0], dtype='double')
+        self.d_ghost = np.zeros(self.data.shape[0], dtype='double')
 
     def _share_boundaries(self):
-        req = []
-        if self.rank_left is not None:
-            # Send edges to their ghost zones; tag is my own rank;
-            # use Python objects (these array views aren't always contiguous)
-            comm.isend(self.l_edge, dest=self.rank_left, tag=self.rank)
-            #print(self.l_edge)
-            # Recieve ghost zones from their edges; tag is their rank
-            req.append( comm.irecv(buf=self.l_ghost, source=self.rank_left,
-                        tag=self.rank_left))
-            #req = comm.irecv(source=self.rank_left, tag=self.rank_left)
-            #self.l_ghost = req.wait()
-
+        r = []
+        print("before:", self.l_ghost)
         if self.rank_right is not None:
-            comm.isend(self.r_edge, dest=self.rank_right, tag=self.rank)
-            
-            req.append( comm.irecv(buf=self.r_ghost, source=self.rank_right,
-                        tag=self.rank_right))
-            #req = comm.irecv(source=self.rank_right, tag=self.rank_right)
-            #self.r_ghost = req.wait()
-
-        if self.rank_up is not None:
-            comm.isend(self.u_edge, dest=self.rank_up, tag=self.rank)
-            
-            req.append( comm.irecv(buf=self.u_ghost, source=self.rank_up,
-                        tag=self.rank_up))
-            #req = comm.irecv(source=self.rank_up, tag=self.rank_up)
-            #self.u_ghost = req.wait()
-
-        if self.rank_down is not None:
-            comm.isend(self.d_edge, dest=self.rank_down, tag=self.rank)
-            
-            req.append( comm.irecv(buf=self.d_ghost, source=self.rank_down,
-                        tag=self.rank_down))
-            #req = comm.irecv(source=self.rank_down, tag=self.rank_down)
-            #self.d_ghost = req.wait()
-
-        MPI.Request.Waitall(req)
+            r.append(comm.Irecv([self.r_ghost, MPI.DOUBLE], source=self.rank_right))
+            r.append(comm.Isend([self.r_edge, MPI.DOUBLE], dest=self.rank_right))
+        
+        if self.rank_left is not None:
+            r.append(comm.Irecv([self.l_ghost, MPI.DOUBLE], source=self.rank_left))
+            r.append(comm.Isend([self.l_edge, MPI.DOUBLE], dest=self.rank_left))
+        
+        if r:
+            MPI.Request.Waitall(r)
+        print("after:", self.l_ghost)
 
     def update_boundaries(self):
         self._create_boundary_arrays()
@@ -251,9 +227,9 @@ if __name__ == "__main__":
 
     # my_grid.data initializes to zero, and new to one
     #while not np.allclose(new[1:-1,1:-1], my_grid.data[1:-1,1:-1]):
-    for k in range(10000):
+    for k in range(100):
     #for k in range(5):
-        #my_grid.update_boundaries()
+        my_grid.update_boundaries()
         for i in range(1, my_grid.data.shape[0]-1):
             for j in range(1, my_grid.data.shape[1]-1):
                 new[i,j] = factor*( h_y**-2*(new[i-1,j] + my_grid.data[i+1,j]) \
