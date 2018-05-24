@@ -39,23 +39,25 @@ class Grid():
         self.cell_edges_y = np.linspace(grid_left[1], grid_right[1], grid_dim[1]+1)
         self.data = np.zeros((self.cell_edges_x.size+1, self.cell_edges_y.size+1),
                              dtype='double')
+        self.shape = self.data.shape
 
     def _create_boundary_arrays(self): 
         # Copy the edges of the active zone  
-        self.l_edge  = self.data[:,1].copy() # x is second index  
-        self.r_edge  = self.data[:,-2].copy()
-        self.u_edge  = self.data[-2,:].copy() # numpy flips y-axis
-        self.d_edge  = self.data[1,:].copy()
+        self.l_edge  = self.data[1:-1,1].copy() # x is second index  
+        self.r_edge  = self.data[1:-1,-2].copy()
+        self.u_edge  = self.data[-2,1:-1].copy() # numpy flips y-axis
+        self.d_edge  = self.data[1,1:-1].copy()
 
         # Create empty arrays to hold edges from other active zones
-        self.l_ghost = np.zeros(self.data.shape[1], dtype='double') 
-        self.r_ghost = np.zeros(self.data.shape[1], dtype='double')
-        self.u_ghost = np.zeros(self.data.shape[0], dtype='double')
-        self.d_ghost = np.zeros(self.data.shape[0], dtype='double')
+        # The corners don't matter
+        self.l_ghost = np.zeros(self.data.shape[0]-2, dtype='double') 
+        self.r_ghost = np.zeros(self.data.shape[0]-2, dtype='double')
+        self.u_ghost = np.zeros(self.data.shape[1]-2, dtype='double')
+        self.d_ghost = np.zeros(self.data.shape[1]-2, dtype='double')
 
     def _share_boundaries(self):
+        print("Edges before transfer (l,r)\n", self.rank, self.l_edge, self.r_edge)
         r = []
-        print("before:", self.l_ghost)
         if self.rank_right is not None:
             r.append(comm.Irecv([self.r_ghost, MPI.DOUBLE], source=self.rank_right))
             r.append(comm.Isend([self.r_edge, MPI.DOUBLE], dest=self.rank_right))
@@ -66,15 +68,15 @@ class Grid():
         
         if r:
             MPI.Request.Waitall(r)
-        print("after:", self.l_ghost)
+
+        return        
 
     def update_boundaries(self):
         self._create_boundary_arrays()
         self._share_boundaries()
-        self.data[:,0] = self.l_ghost
-        self.data[:,-1] = self.r_ghost
-        self.data[-1,:] = self.u_ghost
-        self.data[0,:] = self.d_ghost
+        print("Ghosts after transfer (l,r)\n", self.rank, self.l_ghost, self.r_ghost)
+        self.data[1:-1,0] = self.l_ghost
+        self.data[1:-1,-1] = self.r_ghost
 
 if __name__ == "__main__":
 
@@ -215,11 +217,13 @@ if __name__ == "__main__":
 
     factor = 1/(2 * (1/h_x**2 + 1/h_y**2))
 
-    # Evaluate the charge density function at all (x,y) grid points
-    source_term = np.zeros(my_grid.data.shape)
+    # Calculate grid's cell centers
     cell_centers_x = my_grid.cell_edges_x[:-1] + h_x/2
     cell_centers_y = my_grid.cell_edges_y[:-1] + h_y/2
     xx, yy = np.meshgrid(cell_centers_x, cell_centers_y)
+
+    # Evaluate the charge density function at all cell centers
+    source_term = np.zeros(my_grid.shape)
     source_term[1:-1,1:-1] = charge_density(xx,yy).T
 
     # Make an array for the updated potential
@@ -227,19 +231,21 @@ if __name__ == "__main__":
 
     # my_grid.data initializes to zero, and new to one
     #while not np.allclose(new[1:-1,1:-1], my_grid.data[1:-1,1:-1]):
-    for k in range(100):
-    #for k in range(5):
+    #for k in range(100):
+    for i in range(5):
+        print(i)
         my_grid.update_boundaries()
         for i in range(1, my_grid.data.shape[0]-1):
             for j in range(1, my_grid.data.shape[1]-1):
                 new[i,j] = factor*( h_y**-2*(new[i-1,j] + my_grid.data[i+1,j]) \
                                   + h_x**-2*(new[i,j-1] + my_grid.data[i,j+1]) \
-                                  - source_term[i,j]) # 1 smaller in each dim
-        #comm.Barrier() 
+                                  - source_term[i,j])
+        comm.Barrier() 
     
         my_grid.data = new.copy()      
     
-    #plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y, my_grid.data[1:-1,1:-1])
-    plt.pcolormesh(my_grid.data[1:-1,1:-1])    
-    plt.show()
+    #plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y, my_grid.data[1:-1,1:-1].T)
+    #plt.pcolormesh(my_grid.data[1:-1,1:-1])    
+    #plt.show()
+    print(my_rank, my_grid.data)
     
