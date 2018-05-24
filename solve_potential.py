@@ -39,54 +39,66 @@ class Grid():
         self.cell_edges_y = np.linspace(grid_left[1], grid_right[1], grid_dim[1]+1)
         self.data = np.zeros((self.cell_edges_x.size+1, self.cell_edges_y.size+1))
 
-        self.update_views()
+    def _create_boundary_arrays(self): 
+        # Copy the edges of the active zone  
+        self.l_edge  = self.data[:,1].copy() # x is second index  
+        self.r_edge  = self.data[:,-2].copy()
+        self.u_edge  = self.data[-2,:].copy() # numpy flips y-axis
+        self.d_edge  = self.data[1,:].copy()
 
-    def update_views(self):        
-        # Create views of the ghost zones and data edges to make comm easier
-        self.l_ghost = self.data[:,0] # x is second index
-        self.l_edge  = self.data[:,1]   
-        self.r_ghost = self.data[:,-1]
-        self.r_edge  = self.data[:,-2]
-        self.u_ghost = self.data[-1,:] # numpy flips y-axis 
-        self.u_edge  = self.data[-2,:]
-        self.d_ghost = self.data[0,:]
-        self.d_edge  = self.data[1,:]
+        # Create empty arrays to hold edges from other active zones
+        self.l_ghost = np.empty(self.data.shape[1]) 
+        self.r_ghost = np.empty(self.data.shape[1])
+        self.u_ghost = np.empty(self.data.shape[0])
+        self.d_ghost = np.empty(self.data.shape[0])
 
-    def share_ghost_zones(self):
+
+    def _share_boundaries(self):
         req = []
         if self.rank_left is not None:
             # Send edges to their ghost zones; tag is my own rank;
             # use Python objects (these array views aren't always contiguous)
             comm.isend(self.l_edge, dest=self.rank_left, tag=self.rank)
-            print(self.l_edge)
+            #print(self.l_edge)
             # Recieve ghost zones from their edges; tag is their rank
-            #req.append(comm.irecv(source=self.rank_left, tag=self.rank_left))
-            req = comm.irecv(source=self.rank_left, tag=self.rank_left)
-            self.l_ghost = req.wait()
-            #print(self.l_ghost)
+            req.append( comm.irecv(buf=self.l_ghost, source=self.rank_left,
+                        tag=self.rank_left))
+            #req = comm.irecv(source=self.rank_left, tag=self.rank_left)
+            #self.l_ghost = req.wait()
 
         if self.rank_right is not None:
             comm.isend(self.r_edge, dest=self.rank_right, tag=self.rank)
             
-            #req.append(comm.irecv(source=self.rank_right, tag=self.rank_right))
-            req = comm.irecv(source=self.rank_right, tag=self.rank_right)
-            self.r_ghost = req.wait()
+            req.append( comm.irecv(buf=self.r_ghost, source=self.rank_right,
+                        tag=self.rank_right))
+            #req = comm.irecv(source=self.rank_right, tag=self.rank_right)
+            #self.r_ghost = req.wait()
 
         if self.rank_up is not None:
             comm.isend(self.u_edge, dest=self.rank_up, tag=self.rank)
             
-            #req.append(comm.irecv(source=self.rank_up, tag=self.rank_up))
-            req = comm.irecv(source=self.rank_up, tag=self.rank_up)
-            self.u_ghost = req.wait()
+            req.append( comm.irecv(buf=self.u_ghost, source=self.rank_up,
+                        tag=self.rank_up))
+            #req = comm.irecv(source=self.rank_up, tag=self.rank_up)
+            #self.u_ghost = req.wait()
 
         if self.rank_down is not None:
             comm.isend(self.d_edge, dest=self.rank_down, tag=self.rank)
             
-            #req.append(comm.irecv(source=self.rank_down, tag=self.rank_down))
-            req = comm.irecv(source=self.rank_down, tag=self.rank_down)
-            self.d_ghost = req.wait()
+            req.append( comm.irecv(buf=self.d_ghost, source=self.rank_down,
+                        tag=self.rank_down))
+            #req = comm.irecv(source=self.rank_down, tag=self.rank_down)
+            #self.d_ghost = req.wait()
 
-        #MPI.Request.Waitall(req)
+        MPI.Request.Waitall(req)
+
+    def update_boundaries(self):
+        self._create_boundary_arrays()
+        self._share_boundaries()
+        self.data[:,0] = self.l_ghost
+        self.data[:,-1] = self.r_ghost
+        self.data[-1,:] = self.u_ghost
+        self.data[0,:] = self.d_ghost
 
 if __name__ == "__main__":
 
@@ -229,8 +241,8 @@ if __name__ == "__main__":
 
     # Evaluate the charge density function at all (x,y) grid points
     source_term = np.zeros(my_grid.data.shape)
-    cell_centers_x = my_grid.cell_edges_x[1:] - my_grid.cell_edges_x[:-1]
-    cell_centers_y = my_grid.cell_edges_y[1:] - my_grid.cell_edges_y[:-1]
+    cell_centers_x = my_grid.cell_edges_x[:-1] + h_x/2
+    cell_centers_y = my_grid.cell_edges_y[:-1] + h_y/2
     xx, yy = np.meshgrid(cell_centers_x, cell_centers_y)
     source_term[1:-1,1:-1] = charge_density(xx,yy).T
 
@@ -240,22 +252,18 @@ if __name__ == "__main__":
     # my_grid.data initializes to zero, and new to one
     #while not np.allclose(new[1:-1,1:-1], my_grid.data[1:-1,1:-1]):
     for k in range(10000):
-    #if True:
-        my_grid.share_ghost_zones()
+    #for k in range(5):
+        #my_grid.update_boundaries()
         for i in range(1, my_grid.data.shape[0]-1):
             for j in range(1, my_grid.data.shape[1]-1):
                 new[i,j] = factor*( h_y**-2*(new[i-1,j] + my_grid.data[i+1,j]) \
                                   + h_x**-2*(new[i,j-1] + my_grid.data[i,j+1]) \
                                   - source_term[i,j]) # 1 smaller in each dim
-        comm.Barrier()
-        if np.allclose(new[1:-1,1:-1], my_grid.data[1:-1,1:-1]):
-            my_grid.data = new.copy()
-            my_grid.update_views()
-            break  
+        #comm.Barrier() 
     
-        my_grid.data = new.copy()
-        my_grid.update_views()      
-
-    plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y, my_grid.data[1:-1,1:-1])
+        my_grid.data = new.copy()      
+    
+    #plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y, my_grid.data[1:-1,1:-1])
+    plt.pcolormesh(my_grid.data[1:-1,1:-1])    
     plt.show()
     
