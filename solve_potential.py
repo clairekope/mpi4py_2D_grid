@@ -43,10 +43,10 @@ class Grid():
 
     def _create_boundary_arrays(self): 
         # Copy the edges of the active zone  
-        self.l_edge  = self.data[1:-1,1].copy() # x is second index  
-        self.r_edge  = self.data[1:-1,-2].copy()
-        self.u_edge  = self.data[-2,1:-1].copy() # numpy flips y-axis
-        self.d_edge  = self.data[1,1:-1].copy()
+        self.l_edge  = self.data[1:-1,1    ].copy() # x is second index  
+        self.r_edge  = self.data[1:-1,-2   ].copy()
+        self.u_edge  = self.data[1   , 1:-1].copy()
+        self.d_edge  = self.data[-2  , 1:-1].copy()
 
         # Create empty arrays to hold edges from other active zones
         # The corners don't matter
@@ -119,10 +119,10 @@ class Grid():
     def update_boundaries(self):
         self._create_boundary_arrays()
         self._share_boundaries()
-        self.data[1:-1,0] = self.l_ghost.copy()
-        self.data[1:-1,-1] = self.r_ghost.copy()
-        self.data[-1:,1:-1] = self.u_ghost.copy()
-        self.data[0,1:-1] = self.d_ghost.copy()
+        self.data[ 1:-1, 0   ] = self.l_ghost.copy()
+        self.data[ 1:-1,-1   ] = self.r_ghost.copy()
+        self.data[ 0:  , 1:-1] = self.u_ghost.copy()
+        self.data[-1   , 1:-1] = self.d_ghost.copy()
 
 if __name__ == "__main__":
 
