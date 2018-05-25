@@ -3,12 +3,12 @@ domain_x 1
 domain_y 1
 
 # number of cells inside the domain
-cells_x 4
-cells_y 4
+cells_x 10
+cells_y 10
 
 # split the domain among MPI ranks,
 # with a given number of ranks in each dimension
 ranks_x   2
-ranks_y   1
+ranks_y   2
 
 periodic  0  # is the domain periodic? 0=False, 1=True

@@ -56,54 +56,120 @@ class Grid():
         self.d_ghost = np.zeros(self.data.shape[1]-2, dtype='double')
 
     def _share_boundaries(self):
-        print("Edges before transfer (l,r)\n", self.rank, self.l_edge, self.r_edge)
         r = []
         if self.rank_right is not None:
+            #if self.rank == 0:
+            #    print("Right edge:", self.r_edge)
             r.append(comm.Irecv([self.r_ghost, MPI.DOUBLE], source=self.rank_right))
             r.append(comm.Isend([self.r_edge, MPI.DOUBLE], dest=self.rank_right))
         
         if self.rank_left is not None:
+            #if self.rank == 1:
+            #    print("Left edge:", self.l_edge)
             r.append(comm.Irecv([self.l_ghost, MPI.DOUBLE], source=self.rank_left))
             r.append(comm.Isend([self.l_edge, MPI.DOUBLE], dest=self.rank_left))
+
+        #if self.rank_up is not None:
+        #    r.append(comm.Irecv([self.u_ghost, MPI.DOUBLE], source=self.rank_up))
+        #    r.append(comm.Isend([self.u_edge, MPI.DOUBLE], dest=self.rank_up))
+
+        #if self.rank_down is not None:
+        #    r.append(comm.Irecv([self.d_ghost, MPI.DOUBLE], source=self.rank_down))
+        #    r.append(comm.Isend([self.d_edge, MPI.DOUBLE], dest=self.rank_down))
         
         if r:
             MPI.Request.Waitall(r)
 
+        #if self.rank == 1:
+        #    print("Left ghost:", self.l_ghost)
+        #if self.rank == 0:
+        #    print("Right ghost:", self.r_ghost)
+
         return        
+
+    def _share_boundaries_blocking(self):
+        # Even ranks send right
+        if self.rank%2 == 0 and self.rank_right is not None:
+            #print("Right edge:",self.r_edge)
+            comm.Send([self.r_edge, MPI.DOUBLE], dest=self.rank_right)
+        elif self.rank%2 == 1 and self.rank_left is not None:
+            comm.Recv([self.l_ghost, MPI.DOUBLE], source=self.rank_left)
+            #print("Left ghost:",self.l_ghost)
+
+        # Odd ranks send right
+        if self.rank%2 == 1 and self.rank_right is not None:
+            comm.Send([self.r_edge, MPI.DOUBLE], dest=self.rank_right)
+        elif self.rank%2 == 0 and self.rank_left is not None:
+            comm.Recv([self.l_ghost, MPI.DOUBLE], source=self.rank_left)
+
+        # Even ranks send left
+        if self.rank%2 == 0 and self.rank_left is not None:
+            comm.Send([self.l_edge, MPI.DOUBLE], dest=self.rank_left)
+        elif self.rank%2 == 1 and self.rank_right is not None:
+            comm.Recv([self.r_ghost, MPI.DOUBLE], source=self.rank_right)
+
+        # Odd ranks send left
+        if self.rank%2 == 1 and self.rank_left is not None:
+            #print("Left edge:",self.l_edge)
+            comm.Send([self.l_edge, MPI.DOUBLE], dest=self.rank_left)
+        elif self.rank%2 == 0 and self.rank_right is not None:
+            comm.Recv([self.r_ghost, MPI.DOUBLE], source=self.rank_right)
+            #print("Right ghost:",self.r_ghost)
 
     def update_boundaries(self):
         self._create_boundary_arrays()
         self._share_boundaries()
-        print("Ghosts after transfer (l,r)\n", self.rank, self.l_ghost, self.r_ghost)
-        self.data[1:-1,0] = self.l_ghost
-        self.data[1:-1,-1] = self.r_ghost
+        self.data[1:-1,0] = self.l_ghost.copy()
+        self.data[1:-1,-1] = self.r_ghost.copy()
+        self.data[-1:,1:-1] = self.u_ghost.copy()
+        self.data[0,1:-1] = self.d_ghost.copy()
 
 if __name__ == "__main__":
-
-    # Process command line arguments
-    if len(sys.argv) != 2:
-        raise RuntimeError("Must supply parameter file")
 
     # no MPI init!!
     comm = MPI.COMM_WORLD
     my_rank = comm.Get_rank()
     size = comm.Get_size()
 
-    # Read parameters
-    if my_rank == 0: # only one process should read the file
-        parameters = parse_parameters(sys.argv[1])
+    # Process command line arguments
+    if len(sys.argv) == 1:
+        if my_rank == 0:
+            print("Usage: {} parameter_file [ranks_x ranks_y]\n"
+                  "ranks_x and ranks_y must be supplied together.\n"
+                  "If not supplied, must be in parameter file.".format(sys.argv[0]))
+        sys.exit()
+    elif len(sys.argv) == 2:
+        if my_rank == 0:
+            print("Using ranks_x and ranks_y from {}".format(sys.argv[1]))
+            parameters = parse_parameters(sys.argv[1])
+        else:
+            parameters = None # everyone else needs something to hold the data
+        parameters = comm.bcast(parameters, root=0)
+        xranks = parameters.get('ranks_x')
+        yranks = parameters.get('ranks_y')
+    elif len(sys.argv) == 3:
+        if my_rank == 0:
+            print("Third argument ({}) is ambiguous. Must supply "
+                  "both ranks_x and ranks_y.\nExiting...".format(sys.argv[2]))
+        sys.exit()
+    elif len(sys.argv) == 4:
+        if my_rank == 0:
+            parameters = parse_parameters(sys.argv[1])
+        else:
+            parameters = None # everyone else needs something to hold the data
+        parameters = comm.bcast(parameters, root=0)
+        xranks = int(sys.argv[2])
+        yranks = int(sys.argv[3])
     else:
-        parameters = None # everyone else needs something to hold the data
+        if my_rank == 0:
+            print("Unrecognized parameters.\nExiting...")
+        sys.exit()
 
-    parameters = comm.bcast(parameters, root=0)
-
-    # Process parameters; set defaults
+    # Process non-mpi parameters
     xlen = parameters.get('domain_x')
     ylen = parameters.get('domain_y')
     xdim = parameters.get('cells_x') # returns None if not in parameters
     ydim = parameters.get('cells_y')
-    xranks = parameters.get('ranks_x')
-    yranks = parameters.get('ranks_y')
     periodic = parameters.get('periodic')
     function = parameters.get('charge_density')
     
@@ -114,7 +180,7 @@ if __name__ == "__main__":
                            "grid_x, grid_y, ranks_x, & ranks_y "
                            "in parameter file {}".format(sys.argv[1])
                           )
-
+    # Set Defaults
     if periodic is None:
         periodic = False
 
@@ -126,7 +192,8 @@ if __name__ == "__main__":
 
     # Check to see if we have enough MPI ranks
     if xranks*yranks != size:
-        raise RuntimeError("Cannot decompose {} MPI ranks into {}x{}"
+        raise RuntimeError("Cannot decompose {} MPI ranks into {}x{}. "
+                           "ranks_x*ranks_y must equal number of processes."
                            .format(size,xranks,yranks)
                           )
 
@@ -231,21 +298,19 @@ if __name__ == "__main__":
 
     # my_grid.data initializes to zero, and new to one
     #while not np.allclose(new[1:-1,1:-1], my_grid.data[1:-1,1:-1]):
-    #for k in range(100):
-    for i in range(5):
-        print(i)
+    for k in range(5):
         my_grid.update_boundaries()
-        for i in range(1, my_grid.data.shape[0]-1):
-            for j in range(1, my_grid.data.shape[1]-1):
-                new[i,j] = factor*( h_y**-2*(new[i-1,j] + my_grid.data[i+1,j]) \
-                                  + h_x**-2*(new[i,j-1] + my_grid.data[i,j+1]) \
-                                  - source_term[i,j])
+        for i in range(1, my_grid.shape[0]-1):
+            for j in range(1, my_grid.shape[1]-1):
+                new[i,j] = factor*(
+                           h_y**-2*(my_grid.data[i-1,j] + my_grid.data[i+1,j]) \
+                         + h_x**-2*(my_grid.data[i,j-1] + my_grid.data[i,j+1]) \
+                         - source_term[i,j])
         comm.Barrier() 
     
-        my_grid.data = new.copy()      
-    
-    #plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y, my_grid.data[1:-1,1:-1].T)
-    #plt.pcolormesh(my_grid.data[1:-1,1:-1])    
-    #plt.show()
-    print(my_rank, my_grid.data)
+        my_grid.data[1:-1,1:-1] = new[1:-1,1:-1].copy()      
+        
+    plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y,
+                   my_grid.data[1:-1,1:-1].T)   
+    plt.show()
     
