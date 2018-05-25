@@ -37,14 +37,14 @@ class Grid():
         # Include ghost zones in data, but not x or y
         self.cell_edges_x = np.linspace(grid_left[0], grid_right[0], grid_dim[0]+1)
         self.cell_edges_y = np.linspace(grid_left[1], grid_right[1], grid_dim[1]+1)
-        self.data = np.zeros((self.cell_edges_x.size+1, self.cell_edges_y.size+1),
+        self.data = np.zeros((self.cell_edges_y.size+1, self.cell_edges_x.size+1),
                              dtype='double')
         self.shape = self.data.shape
 
     def _create_boundary_arrays(self): 
         # Copy the edges of the active zone  
-        self.l_edge  = self.data[1:-1,1    ].copy() # x is second index  
-        self.r_edge  = self.data[1:-1,-2   ].copy()
+        self.l_edge  = self.data[1:-1,-2   ].copy()
+        self.r_edge  = self.data[1:-1,1    ].copy() # x is second index  
         self.u_edge  = self.data[1   , 1:-1].copy()
         self.d_edge  = self.data[-2  , 1:-1].copy()
 
@@ -86,7 +86,7 @@ class Grid():
         #    print("Right ghost:", self.r_ghost)
 
         return        
-"""
+    """
     def _share_boundaries_blocking(self):
         # Even ranks send right
         if self.rank%2 == 0 and self.rank_right is not None:
@@ -115,12 +115,12 @@ class Grid():
         elif self.rank%2 == 0 and self.rank_right is not None:
             comm.Recv([self.r_ghost, MPI.DOUBLE], source=self.rank_right)
             #print("Right ghost:",self.r_ghost)
-"""
+    """
     def update_boundaries(self):
         self._create_boundary_arrays()
         self._share_boundaries()
-        self.data[ 1:-1, 0   ] = self.l_ghost.copy()
-        self.data[ 1:-1,-1   ] = self.r_ghost.copy()
+        self.data[ 1:-1,-1   ] = self.l_ghost.copy()
+        self.data[ 1:-1, 0   ] = self.r_ghost.copy()
         self.data[ 0:  , 1:-1] = self.u_ghost.copy()
         self.data[-1   , 1:-1] = self.d_ghost.copy()
 
@@ -291,7 +291,7 @@ if __name__ == "__main__":
 
     # Evaluate the charge density function at all cell centers
     source_term = np.zeros(my_grid.shape)
-    source_term[1:-1,1:-1] = charge_density(xx,yy).T
+    source_term[1:-1,1:-1] = charge_density(xx,yy)
 
     # Make an array for the updated potential
     new = np.zeros(my_grid.data.shape)
@@ -311,6 +311,6 @@ if __name__ == "__main__":
         my_grid.data[1:-1,1:-1] = new[1:-1,1:-1].copy()      
         
     plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y,
-                   my_grid.data[1:-1,1:-1].T)   
+                   my_grid.data[1:-1,1:-1])   
     plt.show()
     
