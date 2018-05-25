@@ -86,7 +86,7 @@ class Grid():
         #    print("Right ghost:", self.r_ghost)
 
         return        
-
+"""
     def _share_boundaries_blocking(self):
         # Even ranks send right
         if self.rank%2 == 0 and self.rank_right is not None:
@@ -115,7 +115,7 @@ class Grid():
         elif self.rank%2 == 0 and self.rank_right is not None:
             comm.Recv([self.r_ghost, MPI.DOUBLE], source=self.rank_right)
             #print("Right ghost:",self.r_ghost)
-
+"""
     def update_boundaries(self):
         self._create_boundary_arrays()
         self._share_boundaries()
