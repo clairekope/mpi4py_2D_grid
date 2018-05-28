@@ -45,10 +45,10 @@ class Grid():
 
     def _create_boundary_arrays(self): 
         # Copy the edges of the active zone  
-        self.l_edge  = self.data[1:-1,-2   ].copy()
-        self.r_edge  = self.data[1:-1,1    ].copy() # x is second index  
-        self.u_edge  = self.data[1   , 1:-1].copy()
-        self.d_edge  = self.data[-2  , 1:-1].copy()
+        self.l_edge  = self.data[1:-1, 1   ].copy() # x is second index
+        self.r_edge  = self.data[1:-1,-2   ].copy()
+        self.u_edge  = self.data[-2  , 1:-1].copy() # y axis is flipped
+        self.d_edge  = self.data[ 1  , 1:-1].copy()
 
         # Create empty arrays to hold edges from other active zones
         # The corners don't matter
@@ -70,15 +70,15 @@ class Grid():
             #    print("Left edge:", self.l_edge)
             r.append(comm.Irecv([self.l_ghost, MPI.DOUBLE], source=self.rank_left))
             r.append(comm.Isend([self.l_edge, MPI.DOUBLE], dest=self.rank_left))
-
-        #if self.rank_up is not None:
-        #    r.append(comm.Irecv([self.u_ghost, MPI.DOUBLE], source=self.rank_up))
-        #    r.append(comm.Isend([self.u_edge, MPI.DOUBLE], dest=self.rank_up))
-
-        #if self.rank_down is not None:
-        #    r.append(comm.Irecv([self.d_ghost, MPI.DOUBLE], source=self.rank_down))
-        #    r.append(comm.Isend([self.d_edge, MPI.DOUBLE], dest=self.rank_down))
         
+        if self.rank_up is not None:
+            r.append(comm.Irecv([self.u_ghost, MPI.DOUBLE], source=self.rank_up))
+            r.append(comm.Isend([self.u_edge, MPI.DOUBLE], dest=self.rank_up))
+
+        if self.rank_down is not None:
+            r.append(comm.Irecv([self.d_ghost, MPI.DOUBLE], source=self.rank_down))
+            r.append(comm.Isend([self.d_edge, MPI.DOUBLE], dest=self.rank_down))
+
         if r:
             MPI.Request.Waitall(r)
 
@@ -121,10 +121,10 @@ class Grid():
     def update_boundaries(self):
         self._create_boundary_arrays()
         self._share_boundaries()
-        self.data[ 1:-1,-1   ] = self.l_ghost.copy()
-        self.data[ 1:-1, 0   ] = self.r_ghost.copy()
-        self.data[ 0:  , 1:-1] = self.u_ghost.copy()
-        self.data[-1   , 1:-1] = self.d_ghost.copy()
+        self.data[ 1:-1, 0   ] = self.l_ghost.copy() # x axis is second index
+        self.data[ 1:-1,-1   ] = self.r_ghost.copy()
+        self.data[-1   , 1:-1] = self.u_ghost.copy() # y axis is flipped
+        self.data[ 0   , 1:-1] = self.d_ghost.copy()
 
 if __name__ == "__main__":
 
@@ -312,8 +312,12 @@ if __name__ == "__main__":
     
         my_grid.data[1:-1,1:-1] = new[1:-1,1:-1].copy()      
         
-    plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y, my_grid.data[1:-1,1:-1])
-    plt.show()
+    #plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y, my_grid.data[1:-1,1:-1])
+    #plt.show()
+
+    #######
+    # Assemble full grid on root
+    #######
 
     # Gather grid info on root
     if my_rank == 0:
@@ -351,7 +355,6 @@ if __name__ == "__main__":
             data = data_buf[i][~np.isnan(data_buf[i])].reshape(grid_dims)
 
             full_data[y1:y2,x1:x2] = data
-
 
         plt.pcolormesh(x, y, full_data)  
         plt.show()
