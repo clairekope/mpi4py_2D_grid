@@ -300,7 +300,7 @@ if __name__ == "__main__":
 
     # my_grid.data initializes to zero, and new to one
     #while not np.allclose(new[1:-1,1:-1], my_grid.data[1:-1,1:-1]):
-    for k in range(100):
+    for k in range(10000):
         my_grid.update_boundaries()
         for i in range(1, my_grid.shape[0]-1):
             for j in range(1, my_grid.shape[1]-1):
@@ -355,7 +355,32 @@ if __name__ == "__main__":
             data = data_buf[i][~np.isnan(data_buf[i])].reshape(grid_dims)
 
             full_data[y1:y2,x1:x2] = data
+   
+    #######
+    # Plot solution and known answer
+    #######
 
-        plt.pcolormesh(x, y, full_data)  
+        fig, ax = plt.subplots(1,2)
+
+        p_mesh = ax[0].pcolormesh(x,y,full_data)
+        c_mesh = fig.colorbar(p_mesh, ax=ax[0])
+
+        p_cont = ax[0].contour(x[:-1]+h_x/2, y[:-1]+h_y/2, full_data, cmap="magma")
+        c_cont = fig.colorbar(p_cont, cax=c_mesh.ax)
+
+        ax[0].set_title('Calculation')
+        ax[0].set_aspect('equal','box')        
+
+        xx, yy = np.meshgrid(x[:-1]+h_x/2, y[:-1]+h_y/2)
+        ans = np.sin(np.pi*xx) * np.sin(np.pi*yy)
+
+        p_mesh2 = ax[1].pcolormesh(x,y,ans)
+        c_mesh2 = fig.colorbar(p_mesh2, ax=ax[1])
+
+        p_cont2 = ax[1].contour(x[:-1]+h_x/2, y[:-1]+h_y/2, ans, cmap="magma")
+        c_cont2 = fig.colorbar(p_cont2, cax=c_mesh2.ax)
+
+        ax[1].set_title('Analytic Soln')
+        ax[1].set_aspect('equal','box') 
+
         plt.show()
-    
