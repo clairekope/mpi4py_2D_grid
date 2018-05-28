@@ -3,12 +3,19 @@ domain_x 1
 domain_y 1
 
 # number of cells inside the domain
-cells_x 100
-cells_y 100
+cells_x 4
+cells_y 3
 
 # split the domain among MPI ranks,
 # with a given number of ranks in each dimension
-ranks_x   2
-ranks_y   2
+ranks_x   1
+ranks_y   1
 
 periodic  0  # is the domain periodic? 0=False, 1=True
+
+# The domain will either be initialized to a constant value,
+# or read in from a specified file. The filename should not contain spaces.
+# The file may have comments if preceded by the # character.
+# Values should be comma-separated, and the lower left value is the origin
+init IC_test.csv
+

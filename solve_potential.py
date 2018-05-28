@@ -37,7 +37,7 @@ class Grid():
         # Include ghost zones in data, but not x or y
         self.cell_edges_x = np.linspace(grid_left[0], grid_right[0], grid_dim[0]+1)
         self.cell_edges_y = np.linspace(grid_left[1], grid_right[1], grid_dim[1]+1)
-        self.data = np.zeros((self.cell_edges_y.size+1, self.cell_edges_x.size+1),
+        self.data = np.ones((self.cell_edges_y.size+1, self.cell_edges_x.size+1),
                              dtype='double')
         # Include ghost zones
         self.shape = self.data.shape
@@ -88,36 +88,7 @@ class Grid():
         #    print("Right ghost:", self.r_ghost)
 
         return        
-    """
-    def _share_boundaries_blocking(self):
-        # Even ranks send right
-        if self.rank%2 == 0 and self.rank_right is not None:
-            #print("Right edge:",self.r_edge)
-            comm.Send([self.r_edge, MPI.DOUBLE], dest=self.rank_right)
-        elif self.rank%2 == 1 and self.rank_left is not None:
-            comm.Recv([self.l_ghost, MPI.DOUBLE], source=self.rank_left)
-            #print("Left ghost:",self.l_ghost)
 
-        # Odd ranks send right
-        if self.rank%2 == 1 and self.rank_right is not None:
-            comm.Send([self.r_edge, MPI.DOUBLE], dest=self.rank_right)
-        elif self.rank%2 == 0 and self.rank_left is not None:
-            comm.Recv([self.l_ghost, MPI.DOUBLE], source=self.rank_left)
-
-        # Even ranks send left
-        if self.rank%2 == 0 and self.rank_left is not None:
-            comm.Send([self.l_edge, MPI.DOUBLE], dest=self.rank_left)
-        elif self.rank%2 == 1 and self.rank_right is not None:
-            comm.Recv([self.r_ghost, MPI.DOUBLE], source=self.rank_right)
-
-        # Odd ranks send left
-        if self.rank%2 == 1 and self.rank_left is not None:
-            #print("Left edge:",self.l_edge)
-            comm.Send([self.l_edge, MPI.DOUBLE], dest=self.rank_left)
-        elif self.rank%2 == 0 and self.rank_right is not None:
-            comm.Recv([self.r_ghost, MPI.DOUBLE], source=self.rank_right)
-            #print("Right ghost:",self.r_ghost)
-    """
     def update_boundaries(self):
         self._create_boundary_arrays()
         self._share_boundaries()
@@ -167,22 +138,46 @@ if __name__ == "__main__":
             print("Unrecognized parameters.\nExiting...")
         sys.exit()
 
+    # Check to see if we have enough MPI ranks
+    if xranks*yranks != size:
+        raise RuntimeError("Cannot decompose {} MPI ranks into {}x{}. "
+                           "ranks_x*ranks_y must equal number of processes."
+                           .format(size,xranks,yranks)
+                          )
+    #######
     # Process non-mpi parameters
+    #######
+
     xlen = parameters.get('domain_x')
     ylen = parameters.get('domain_y')
     xdim = parameters.get('cells_x') # returns None if not in parameters
     ydim = parameters.get('cells_y')
     periodic = parameters.get('periodic')
     function = parameters.get('charge_density')
+    init = parameters.get('init')
     
     if xlen is None or ylen is None or \
-       xdim is None or ydim is None or \
-       xranks is None or yranks is None:
+       xdim is None or ydim is None:
         raise RuntimeError("Must include domain_x, domain_y, "
-                           "grid_x, grid_y, ranks_x, & ranks_y "
-                           "in parameter file {}".format(sys.argv[1])
+                           "grid_x, & grid_y in parameter file {}"
+                           .format(sys.argv[1])
                           )
-    # Set Defaults
+
+    # Set ICs  
+    if init is None:
+        grid_init = 0  # Default
+    else:
+        try:
+            grid_init = int(init)
+        except ValueError:
+            # File origin is lower left; np origin is upper left
+            grid_init = np.flipud(np.genfromtxt(init, delimiter=','))
+            if grid_init.shape != (ydim, xdim): # y axis is first dimension
+                raise RuntimeError("Cannot initialize grid with x-y dimensions "
+                                   "({},{}) from file {}".format(xdim,ydim,init)
+                                  )
+
+    # Set other defaults
     if periodic is None:
         periodic = False
 
@@ -192,20 +187,13 @@ if __name__ == "__main__":
     code = "def charge_density(x,y):\n\treturn {}".format(function)
     exec(code)
 
-    # Check to see if we have enough MPI ranks
-    if xranks*yranks != size:
-        raise RuntimeError("Cannot decompose {} MPI ranks into {}x{}. "
-                           "ranks_x*ranks_y must equal number of processes."
-                           .format(size,xranks,yranks)
-                          )
+    #######    
+    # Divide the whole domain among the processes
+    #######
 
     # Physical size of each cell
     h_x = xlen/xdim
     h_y = ylen/ydim
-
-    #######    
-    # Divide the whole grid among the processes
-    #######
 
     gridx = xdim // xranks
     gridy = ydim // yranks
@@ -280,6 +268,14 @@ if __name__ == "__main__":
     my_grid = Grid(my_rank, grid_dims, lower_left, upper_right,
                    neighbor_left, neighbor_right, neighbor_up, neighbor_down)
 
+    # Initialize active cells
+    if type(grid_init) is int:
+        my_grid.data *= grid_init
+    else:
+        my_grid.data[1:-1,1:-1] = grid_init[ystart:yend, xstart:xend]
+
+    # Initialize boundaries; ghost zones will be filled at start of loop
+
     #######
     # Solve for the potential
     #######
@@ -297,7 +293,7 @@ if __name__ == "__main__":
 
     # Make an array for the updated potential
     new = np.zeros(my_grid.data.shape)
-
+    """
     # my_grid.data initializes to zero, and new to one
     #while not np.allclose(new[1:-1,1:-1], my_grid.data[1:-1,1:-1]):
     for k in range(10000):
@@ -311,7 +307,7 @@ if __name__ == "__main__":
         #comm.Barrier() 
     
         my_grid.data[1:-1,1:-1] = new[1:-1,1:-1].copy()      
-        
+    """        
     #plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y, my_grid.data[1:-1,1:-1])
     #plt.show()
 
@@ -359,7 +355,8 @@ if __name__ == "__main__":
     #######
     # Plot solution and known answer
     #######
-
+        plt.pcolormesh(x,y,full_data)
+        """
         fig, ax = plt.subplots(1,2)
 
         p_mesh = ax[0].pcolormesh(x,y,full_data)
@@ -382,5 +379,5 @@ if __name__ == "__main__":
 
         ax[1].set_title('Analytic Soln')
         ax[1].set_aspect('equal','box') 
-
+        """
         plt.show()
