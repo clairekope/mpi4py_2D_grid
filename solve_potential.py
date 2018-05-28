@@ -26,7 +26,7 @@ class Grid():
     def __init__(self, rank, grid_dim, grid_left, grid_right,
                  rank_left, rank_right, rank_up, rank_down):
         self.rank = int(rank)
-        self.grid_dim = grid_dim
+        self.grid_dim = grid_dim # dimension of active zone
         self.grid_left = grid_left
         self.grid_right = grid_right # up to but not including
         self.rank_left = rank_left
@@ -39,7 +39,9 @@ class Grid():
         self.cell_edges_y = np.linspace(grid_left[1], grid_right[1], grid_dim[1]+1)
         self.data = np.zeros((self.cell_edges_y.size+1, self.cell_edges_x.size+1),
                              dtype='double')
+        # Include ghost zones
         self.shape = self.data.shape
+        self.size = self.data.size
 
     def _create_boundary_arrays(self): 
         # Copy the edges of the active zone  
@@ -298,7 +300,7 @@ if __name__ == "__main__":
 
     # my_grid.data initializes to zero, and new to one
     #while not np.allclose(new[1:-1,1:-1], my_grid.data[1:-1,1:-1]):
-    for k in range(5):
+    for k in range(100):
         my_grid.update_boundaries()
         for i in range(1, my_grid.shape[0]-1):
             for j in range(1, my_grid.shape[1]-1):
@@ -306,11 +308,51 @@ if __name__ == "__main__":
                            h_y**-2*(my_grid.data[i-1,j] + my_grid.data[i+1,j]) \
                          + h_x**-2*(my_grid.data[i,j-1] + my_grid.data[i,j+1]) \
                          - source_term[i,j])
-        comm.Barrier() 
+        #comm.Barrier() 
     
         my_grid.data[1:-1,1:-1] = new[1:-1,1:-1].copy()      
         
-    plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y,
-                   my_grid.data[1:-1,1:-1])   
+    plt.pcolormesh(my_grid.cell_edges_x, my_grid.cell_edges_y, my_grid.data[1:-1,1:-1])
     plt.show()
+
+    # Gather grid info on root
+    if my_rank == 0:
+        edges_buf = np.empty([size, 2, 2], dtype='double')
+
+        # not all grids are same size; pad with NaNs
+        data_buf = np.full([size, (gridx+rmdrx)*(gridy+rmdry)],
+                           np.nan, dtype='double')        
+    else:
+        edges_buf = None
+        data_buf = None
+    
+    # Grids will be flattened
+    comm.Gather(np.array([my_grid.grid_left, my_grid.grid_right]), edges_buf, root=0)
+    comm.Gather(my_grid.data[1:-1,1:-1].copy(), data_buf, root=0)
+
+    # Combine into one big grid on root
+    if my_rank == 0:
+        x = np.linspace(0, xlen, xdim+1)
+        y = np.linspace(0, ylen, ydim+1)
+        full_data = np.empty((ydim, xdim))
+        for i in range(size):
+            x1, y1 = edges_buf[i,0]
+            x2, y2 = edges_buf[i,1]
+
+            # Convert edges from physical length to grid coords
+            x1 = int(x1/xlen * xdim)
+            x2 = int(x2/xlen * xdim)
+            y1 = int(y1/ylen * ydim)
+            y2 = int(y2/ylen * ydim)
+            #print(x1,x2,y1,y2)
+
+            # Reshape flattened array
+            grid_dims = (y2-y1,x2-x1)
+            data = data_buf[i][~np.isnan(data_buf[i])].reshape(grid_dims)
+
+            full_data[y1:y2,x1:x2] = data
+
+
+        plt.pcolormesh(x, y, full_data)  
+        plt.show()
     
