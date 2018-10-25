@@ -154,7 +154,12 @@ if __name__ == "__main__":
     ydim = parameters.get('cells_y')
     periodic = parameters.get('periodic')
     function = parameters.get('charge_density')
-    init = parameters.get('init')
+    init = parameters.get('domain_IC')
+    BC_in_IC = parameters.get('BC_in_IC')
+    uBC = parameters.get('top_BC')
+    dBC = parameters.get('bottom_BC')
+    lBC = parameters.get('left_BC')
+    rBC = parameters.get('right_BC')
     
     if xlen is None or ylen is None or \
        xdim is None or ydim is None:
@@ -162,17 +167,23 @@ if __name__ == "__main__":
                            "grid_x, & grid_y in parameter file {}"
                            .format(sys.argv[1])
                           )
-
     # Set ICs  
     if init is None:
         grid_init = 0  # Default
     else:
         try:
             grid_init = int(init)
-        except ValueError:
+            # init is an int
+            if type(grid_init) == int and BC_in_IC:
+                raise RuntimeError("Parameter 'BC_in_IC' is enabled but "
+                                   "'domain_IC' (value {}) does not specify a file"
+                                   .format(grid_init)
+                                  )
+        except ValueError: # it's a filename
             # File origin is lower left; np origin is upper left
             grid_init = np.flipud(np.genfromtxt(init, delimiter=','))
-            if grid_init.shape != (ydim, xdim): # y axis is first dimension
+  
+            if grid_init.shape != (ydim, xdim) and not BC_in_IC:
                 raise RuntimeError("Cannot initialize grid with x-y dimensions "
                                    "({},{}) from file {}".format(xdim,ydim,init)
                                   )

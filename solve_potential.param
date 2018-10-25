@@ -3,7 +3,7 @@ domain_x 1
 domain_y 1
 
 # number of cells inside the domain
-cells_x 4
+cells_x 7
 cells_y 3
 
 # split the domain among MPI ranks,
@@ -13,9 +13,20 @@ ranks_y   1
 
 periodic  0  # is the domain periodic? 0=False, 1=True
 
-# The domain will either be initialized to a constant value,
+# The domain will either be initialized to a specified constant value,
 # or read in from a specified file. The filename should not contain spaces.
 # The file may have comments if preceded by the # character.
 # Values should be comma-separated, and the lower left value is the origin
-init IC_test.csv
+domain_IC IC_test.csv
+
+# If the boundaries are contained in the above file, enable this parameter:
+BC_in_IC 1
+
+# If the boundaries are *not* included in the domain_IC file,
+# the boundaries will either be initialized to a specified constant value,
+# or to a specified array of values.
+top_BC 1
+bottom_BC 2
+left_BC 3
+right_BC 4
 
